@@ -6,6 +6,7 @@
 import numpy as np
 import h5py
 from pathlib import Path
+import pandas as pd
 
 # Clustering algorithms
 from sklearn.cluster import KMeans, AgglomerativeClustering
@@ -13,8 +14,8 @@ from sklearn.decomposition import PCA
 from sklearn.metrics import davies_bouldin_score, silhouette_score
 
 # UMAP + HDBSCAN
-# import umap
-# import hdbscan
+import umap
+import hdbscan
 
 
 # ============================================================
@@ -33,33 +34,34 @@ def robust_normalize(matrix, lower_pct=1.0, upper_pct=99.0):
     return np.clip(scaled, 0.0, 1.0)
 
 
-def feature_matrix_to_image(matrix, target_height=256, target_width=512,
-                            percentile_low=1.0, percentile_high=99.0):
-    """
-    Convert (channels x time) to a normalized heatmap image.
-    """
-    normalized = robust_normalize(matrix, percentile_low, percentile_high)
-
-    # Transpose: place features on vertical axis
-    grid = normalized.T  # shape = (time, channels)
-
-    # Downsample to (target_height, target_width)
-    # Use nearest-neighbor indexing
-    r_idx = np.linspace(0, grid.shape[0] - 1, target_height).astype(int)
-    c_idx = np.linspace(0, grid.shape[1] - 1, target_width).astype(int)
-    return grid[r_idx][:, c_idx]   # final image
-
 
 def preprocess_trial_features(features):
     """
     Input:
         features: raw neural array (channels x time)
     Returns:
-        image: 2D heatmap (H x W)
-        X_raw: (time, features) for clustering
+        image: None (image generation removed)
+        X_raw: (time, features) for clustering — per-channel normalized raw time-series.
     """
-    image = feature_matrix_to_image(features)
-    X_raw = image.T  # shape = (W, H)
+    # no longer generate the image here; return None to keep the signature stable.
+    image = None
+
+    # Produce X_raw from the original features (channels x time -> time x channels)
+    feats = np.array(features)
+    if feats.ndim != 2:
+        feats = feats.reshape(feats.shape[0], -1)
+
+    chans, tim = feats.shape
+    X_norm = np.zeros_like(feats, dtype=float)
+    for i in range(chans):
+        col = feats[i]
+        low = np.percentile(col, 1.0)
+        high = np.percentile(col, 99.0)
+        if high <= low:
+            high = low + 1e-6
+        X_norm[i] = np.clip((col - low) / (high - low), 0.0, 1.0)
+
+    X_raw = X_norm.T
     return image, X_raw
 
 
@@ -139,7 +141,7 @@ def run_kmeans(X, n_clusters):
 
 
 # ============================================================
-# 2.2 — SIMPLE CURE IMPLEMENTATION (Version A)
+# 2.2 — CURE IMPLEMENTATION 
 # ============================================================
 
 def cure_representatives(cluster_points, num_reps, shrink):
@@ -203,11 +205,11 @@ def run_cure(X, n_clusters, n_reps=5, shrink=0.5):
     """
     Simple CURE — returns integer labels for each X[i]
     """
-    # Step 1: initial assignment using k-means to get base clusters
+    # initial assignment using k-means to get base clusters
     km = KMeans(n_clusters=n_clusters, n_init=5, random_state=0)
     init_labels = km.fit_predict(X)
 
-    # Step 2: compute representative points per cluster
+    # compute representative points per cluster
     reps_list = []
     for c in range(n_clusters):
         cluster_pts = X[init_labels == c]
@@ -217,13 +219,7 @@ def run_cure(X, n_clusters, n_reps=5, shrink=0.5):
         reps = cure_representatives(cluster_pts, num_reps=n_reps, shrink=shrink)
         reps_list.append(reps)
 
-    # Step 3: optional merging (CURE sometimes merges initial k clusters downward)
-    # Here, we KEEP k fixed — so no merging step.
-    # (You can enable merging by uncommenting below.)
-    #
-    # reps_list = hierarchical_merge(reps_list, target_k=n_clusters)
-
-    # Step 4: assign each point to nearest representative cluster
+    # assign each point to nearest representative cluster
     import numpy.linalg as LA
 
     # Flatten representatives per cluster
@@ -267,7 +263,10 @@ def run_umap_hdbscan(X,
                      umap_cluster_dim=10, 
                      umap_plot_dim=2,
                      min_cluster_size=40, 
-                     min_samples=10):
+                     min_samples=10,
+                     n_neighbors=30,
+                     min_dist=0.1,
+                     **kwargs):
     """
     UMAP (10D) → HDBSCAN for clustering
     UMAP (2D) → for visualization
@@ -280,8 +279,8 @@ def run_umap_hdbscan(X,
     # UMAP for clustering (10D)
     reducer_cluster = umap.UMAP(
         n_components=umap_cluster_dim,
-        n_neighbors=30,
-        min_dist=0.1,
+        n_neighbors=n_neighbors,
+        min_dist=min_dist,
         random_state=0
     )
     X_umap_cluster = reducer_cluster.fit_transform(X)
@@ -296,8 +295,8 @@ def run_umap_hdbscan(X,
     # UMAP for visualization (2D)
     reducer_plot = umap.UMAP(
         n_components=umap_plot_dim,
-        n_neighbors=30,
-        min_dist=0.1,
+        n_neighbors=n_neighbors,
+        min_dist=min_dist,
         random_state=0
     )
     X_umap_plot = reducer_plot.fit_transform(X)
@@ -366,13 +365,6 @@ def compute_cluster_sizes(labels):
     """
     unique, counts = np.unique(labels, return_counts=True)
     return dict(zip(unique, counts))
-# ============================================================
-# PART 4 — EVALUATION FUNCTIONS
-# ============================================================
-
-import pandas as pd
-
-
 
 # ============================================================
 # Helper: wrap algorithm dispatch
@@ -404,6 +396,10 @@ def run_algorithm(algorithm_name, X, k=None, n_reps=None, shrink=None):
 
     return labels, X_used
 
+
+# ============================================================
+# PART 4 — EVALUATION FUNCTIONS
+# ============================================================
 
 
 # ============================================================
@@ -699,7 +695,10 @@ def evaluate_umap_hdbscan(
     umap_cluster_dim=10,
     umap_plot_dim=2,
     min_cluster_size=40,
-    min_samples=10
+    min_samples=10,
+    n_neighbors=30,
+    min_dist=0.1,
+    **kwargs
 ):
     """
     Apply chunking → optional PCA → UMAP+HDBSCAN.
@@ -727,7 +726,6 @@ def evaluate_umap_hdbscan(
         if pca_dim is not None:
             X_chunks, _ = apply_pca(X_chunks, pca_dim)
 
-        # Append
         start_idx = len(X_all)
         X_all.append(X_chunks)
 
@@ -743,121 +741,198 @@ def evaluate_umap_hdbscan(
     meta = pd.DataFrame(meta)
 
     # UMAP + HDBSCAN
+    # Forward UMAP/HDBSCAN parameters to the runner; include any extra kwargs
     labels, X_umap_cluster, X_umap_plot = run_umap_hdbscan(
         X_all,
         umap_cluster_dim=umap_cluster_dim,
         umap_plot_dim=umap_plot_dim,
         min_cluster_size=min_cluster_size,
-        min_samples=min_samples
+        min_samples=min_samples,
+        n_neighbors=n_neighbors,
+        min_dist=min_dist,
+        **kwargs
     )
 
     return labels, X_umap_cluster, X_umap_plot, meta
 
 
-# ============================================================
-# 2.5 — LOCALITY SENSITIVE HASHING (Random Hyperplane / SimHash)
-# ============================================================
-def run_lsh(X, n_bits=32, n_tables=2, seed=0):
+# Define default region names and index ranges (for 512 features)
+DEFAULT_REGION_NAMES = ["ventral 6v", "area 4", "55b", "dorsal 6v"]
+
+# Each entry: list of (start, end) index ranges, where end is exclusive
+DEFAULT_REGION_SLICES_512 = {
+    "ventral 6v": [(0, 64), (256, 320)],
+    "area 4":     [(64, 128), (320, 384)],
+    "55b":        [(128, 192), (384, 448)],
+    "dorsal 6v":  [(192, 256), (448, 512)],
+}
+
+
+def compute_region_scores(
+    X: np.ndarray,
+    region_slices: dict[str, list[tuple[int, int]]] | None = None,
+    region_names: list[str] | None = None,
+    n_regions: int | None = None,
+) -> np.ndarray:
     """
-    Run random hyperplane LSH (SimHash) on numeric vectors X.
+    Compute mean activation per *anatomical region* for each sample.
 
-    Args:
-        X: (n_samples, n_features) numeric array
-        n_bits: number of hyperplanes per table (signature length)
-        n_tables: number of independent tables (concatenate via stable hash)
-        seed: random seed
+    Parameters
+    ----------
+    X : array-like, shape (n_samples, n_features)
+        Feature matrix (e.g. 512 features = 4 regions × 2 signal types × 64 electrodes).
 
-    Returns:
-        labels: integer bucket id per sample (np.array, shape=(n_samples,))
-        sig_matrix: array of shape (n_samples, n_tables * n_bits) of {0,1} signatures
+    region_slices : dict[str, list[(start, end)]], optional
+        Mapping from region name to list of (start, end) index ranges
+        (end is exclusive). If None, use DEFAULT_REGION_SLICES_512.
+
+    region_names : list[str], optional
+        Ordering of region names in the output. If None, use the keys
+        of region_slices in sorted order.
+
+    Returns
+    -------
+    region_scores : array, shape (n_samples, n_regions)
+        Mean activation per region for each sample. Columns follow region_names.
     """
-    import hashlib
-
-    rng = np.random.RandomState(seed)
     n_samples, n_features = X.shape
 
-    # normalize rows to unit length to make sign of dot product approximate cosine similarity
-    norms = np.linalg.norm(X, axis=1, keepdims=True)
-    norms[norms == 0] = 1.0
-    Xn = X / norms
+    if region_slices is None:
+        
+        if n_features == 512:
+            region_slices = DEFAULT_REGION_SLICES_512
+        elif n_regions is not None:
+            # Build contiguous equal-width regions across available features.
+            # Each region is represented as a single (start, end) slice.
+            region_slices = {}
+            for i in range(n_regions):
+                start = int(np.floor(i * n_features / n_regions))
+                end = int(np.floor((i + 1) * n_features / n_regions))
+                
+                if end <= start:
+                    end = min(start + 1, n_features)
+                region_slices[f"region_{i}"] = [(start, end)]
+        else:
+            
+            region_slices = {"region_0": [(0, n_features)]}
 
-    sigs = np.zeros((n_samples, n_tables * n_bits), dtype=np.uint8)
+    if region_names is None:
+        region_names = list(region_slices.keys())
 
-    for t in range(n_tables):
-        # random hyperplanes: shape (n_features, n_bits)
-        proj = rng.randn(n_features, n_bits)
-        dots = np.dot(Xn, proj)  # (n_samples, n_bits)
-        bits = (dots > 0).astype(np.uint8)
-        sigs[:, t * n_bits:(t + 1) * n_bits] = bits
+    scores = []
+    for r_name in region_names:
+        slices = region_slices[r_name]
+        # collect all feature indices for this region
+        idx_list = []
+        for start, end in slices:
+            start_clipped = max(0, min(start, n_features))
+            end_clipped = max(0, min(end, n_features))
+            if end_clipped > start_clipped:
+                idx_list.append(np.arange(start_clipped, end_clipped))
+        if not idx_list:
+            scores.append(np.zeros(n_samples))
+            continue
 
-    # Convert each row signature into a stable integer bucket using md5
-    labels = np.zeros(n_samples, dtype=np.int64)
-    for i in range(n_samples):
-        # Represent signature as bytes in a reproducible way
-        b = bytes(sigs[i].tolist())
-        h = hashlib.md5(b).hexdigest()
-        labels[i] = int(h, 16) % (2 ** 63 - 1)
+        region_idx = np.concatenate(idx_list)
+        scores.append(X[:, region_idx].mean(axis=1))
 
-    return labels, sigs
+    region_scores = np.stack(scores, axis=1)  # (n_samples, n_regions)
+    return region_scores
 
 
-def evaluate_lsh(
-    df_trials,
-    window_size,
-    overlap=0,
-    pca_dim=None,
-    max_trials=None,
-    n_bits=32,
-    n_tables=2,
-    seed=0
+def compute_region_labels_from_scores(region_scores: np.ndarray) -> np.ndarray:
+    """
+    Turn region_scores (N, n_regions) into discrete region labels by argmax.
+    """
+    return np.argmax(region_scores, axis=1)
+
+
+def summarize_cluster_regions(
+    labels: np.ndarray,
+    region_scores: np.ndarray,
+    region_labels: np.ndarray,
+    region_names: list[str] | None = None,
+    ignore_noise: bool = True,
 ):
     """
-    Chunk trials into windows, optionally PCA, then run LSH to assign bucket ids.
-    Returns:
-        labels_all, X_sig_all (the signature matrix is not concatenated), X_plot_all (2D PCA for visualization), meta
+    Summarize region information for a single trial.
+
+    Parameters
+    ----------
+    labels : array, shape (N,)
+        Cluster labels per sample.
+
+    region_scores : array, shape (N, n_regions)
+        Continuous per-region scores.
+
+    region_labels : array, shape (N,)
+        Discrete region ids (0..n_regions-1), typically argmax of region_scores.
+
+    region_names : list[str], optional
+        Names for each region (length n_regions). If None, use "Region 0..".
+
+    ignore_noise : bool, default True
+        If True, drop samples with label == -1 (for algorithms that mark noise).
+
+    Returns
+    -------
+    df_mean : DataFrame
+        cluster × region table of mean region_scores.
+
+    df_comp : DataFrame
+        cluster × region table of region composition (fractions).
     """
+    import pandas as pd  # ensure pandas in scope
 
-    X_all = []
-    meta = []
-    counter = 0
+    n_regions = region_scores.shape[1]
+    if region_names is None:
+        # Prefer explicit anatomical names if available in the module defaults.
+        # If the default list covers the required number of regions, use it;
+        # otherwise fall back to generic "Region i" names.
+        if len(DEFAULT_REGION_NAMES) >= n_regions:
+            region_names = DEFAULT_REGION_NAMES[:n_regions]
+        else:
+            region_names = [f"Region {i}" for i in range(n_regions)]
 
-    # Collect chunked data from trials
-    for _, row in df_trials.iterrows():
-        if max_trials is not None and counter >= max_trials:
-            break
-        counter += 1
+    # mask noise if requested
+    mask = np.ones_like(labels, dtype=bool)
+    if ignore_noise:
+        mask = labels != -1
 
-        with h5py.File(row["path"], "r") as h5:
-            features = h5[row["trial"]]["input_features"][:]
+    labels_use = labels[mask]
+    scores_use = region_scores[mask]
+    rlabels_use = region_labels[mask]
 
-        _, X_raw = preprocess_trial_features(features)
-        X_chunks, bounds = chunk_time_series(X_raw, window_size, overlap)
+    unique_clusters = np.unique(labels_use)
 
-        if pca_dim is not None:
-            X_chunks, _ = apply_pca(X_chunks, pca_dim)
+    # ---- mean region activation per cluster ----
+    rows_mean = []
+    for c in unique_clusters:
+        idx = (labels_use == c)
+        if idx.sum() == 0:
+            continue
+        mean_scores = scores_use[idx].mean(axis=0)
+        row = {"cluster": int(c)}
+        for r_idx, val in enumerate(mean_scores):
+            row[region_names[r_idx]] = val
+            # e.g. "ventral 6v", "area 4", ...
+        rows_mean.append(row)
 
-        # Append
-        X_all.append(X_chunks)
+    df_mean = pd.DataFrame(rows_mean).set_index("cluster").sort_index()
 
-        for j, (s, e) in enumerate(bounds):
-            meta.append({
-                "trial": row["trial"],
-                "chunk_idx": j,
-                "start_bin": int(s),
-                "end_bin": int(e)
-            })
+    # ---- region composition per cluster (fractions) ----
+    df_tmp = pd.DataFrame({
+        "cluster": labels_use,
+        "region": rlabels_use
+    })
+    df_comp = pd.crosstab(
+        df_tmp["cluster"],
+        df_tmp["region"],
+        normalize="index"
+    )
 
-    X_all = np.vstack(X_all)
-    meta = pd.DataFrame(meta)
+    # rename region columns to actual names
+    rename_map = {i: region_names[i] for i in range(n_regions) if i in df_comp.columns}
+    df_comp = df_comp.rename(columns=rename_map).sort_index()
 
-    # Run LSH on the chunk vectors
-    labels, sigs = run_lsh(X_all, n_bits=n_bits, n_tables=n_tables, seed=seed)
-
-    # For plotting / visualization produce a 2D PCA of X_all
-    try:
-        X_plot, _ = apply_pca(X_all, 2)
-    except Exception:
-        # fallback: use raw first two dims
-        X_plot = X_all[:, :2]
-
-    return labels, sigs, X_plot, meta
+    return df_mean, df_comp
