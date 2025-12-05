@@ -45,7 +45,7 @@ You may use, study, and modify this code only for personal research purposes pro
 2. Any use, publication, or distribution of this work (or derivatives) includes 
    the following mandatory citation:
 
-   @software{yourname_yourmodel_2025,
+   @software{2025brainclip_alireza,
      author    = {Alireza Hajebrahimi},
      title     = {BrainCLIP - Contrastive Spatiotemporal Transformers for Aligning Intracortical Neural Activity with Natural Language},
      year      = {2025},
@@ -58,3 +58,4 @@ You may use, study, and modify this code only for personal research purposes pro
 
 3. You clearly indicate any modifications made to the original work.
 ```
+
