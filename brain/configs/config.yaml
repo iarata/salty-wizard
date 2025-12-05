@@ -1,0 +1,138 @@
+# BrainCLIP Configuration
+# ======================
+
+# Data settings
+data:
+  data_dir: "data/hdf5_data_final"
+  max_seq_len: 256              # Max time bins (256 * 20ms = 5.12s)
+  num_features: 512             # 256 TX + 256 SPow
+  num_arrays: 4                 # Electrode arrays
+  features_per_array: 128       # Features per array
+  bin_size_ms: 20               # Temporal resolution
+  num_workers: 4
+  pin_memory: true
+
+# Brain encoder settings
+brain_encoder:
+  # Patching
+  patch_size: 5                 # Time bins per patch (100ms)
+  
+  # Architecture
+  hidden_dim: 256               # Embedding dimension D
+  num_temporal_layers: 4        # L_T temporal-only layers
+  num_spatiotemporal_layers: 4  # L_ST alternating layers
+  num_heads: 8                  # Attention heads
+  ffn_dim: 1024                 # Feed-forward dimension (4*D)
+  dropout: 0.1
+  
+  # Position encoding
+  use_rope: true                # Rotary position embeddings
+  max_positions: 512            # Max sequence length
+
+# Text encoder settings
+text_encoder:
+  model_name: "distilbert-base-uncased"
+  freeze: true                  # Freeze initially
+  freeze_layers: -2             # Unfreeze last N layers (negative = from end)
+  max_length: 128               # Max token length
+
+# Projection head settings
+projection:
+  brain_input_dim: 1024         # 4 * hidden_dim after array concat
+  text_input_dim: 768           # DistilBERT hidden size
+  hidden_dim: 512
+  output_dim: 256               # Shared embedding dimension
+
+# Contrastive loss settings
+loss:
+  temperature: 0.07             # InfoNCE temperature
+  label_smoothing: 0.0          # Optional label smoothing
+  
+# Training settings
+training:
+  batch_size: 64
+  accumulate_grad_batches: 1
+  max_epochs: 65
+  
+  # Optimizer
+  optimizer: "adamw"
+  learning_rate: 1.0e-4
+  weight_decay: 0.01
+  betas: [0.9, 0.999]
+  eps: 1.0e-8
+  
+  # Scheduler
+  scheduler: "cosine"
+  warmup_epochs: 5
+  min_lr: 1.0e-6
+  
+  # Gradient clipping
+  gradient_clip_val: 1.0
+  
+  # Precision
+  precision: "16-mixed"         # Mixed precision training
+
+# Data augmentation (training only)
+augmentation:
+  enabled: true
+  
+  # Time masking (SpecAugment-style)
+  time_mask:
+    enabled: true
+    prob: 0.5
+    num_masks: 2
+    mask_ratio: [0.05, 0.2]     # Min/max proportion to mask
+  
+  # Channel/array dropout
+  channel_dropout:
+    enabled: true
+    prob: 0.2
+    drop_arrays: true           # Drop entire arrays vs individual channels
+  
+  # Gaussian noise
+  noise:
+    enabled: true
+    prob: 0.5
+    std: 0.1                    # Relative to feature std
+  
+  # Time shifting
+  time_shift:
+    enabled: true
+    prob: 0.3
+    max_shift: 5                # Max bins to shift
+
+# Validation settings
+validation:
+  val_check_interval: 1.0       # Validate every epoch
+  num_retrieval_examples: 20    # Examples to log
+  
+# Logging settings
+logging:
+  project_name: "brainclip"
+  experiment_name: "baseline"
+  log_every_n_steps: 50
+  
+  # WandB specific
+  wandb:
+    enabled: true
+    entity: null                # Your wandb entity
+    save_dir: "wandb_logs"
+    
+  # Checkpointing
+  checkpoint:
+    dirpath: "checkpoints"
+    filename: "brainclip-{epoch:02d}-{val_loss:.4f}"
+    save_top_k: 3
+    monitor: "val/loss"
+    mode: "min"
+    save_last: true
+
+# Hardware settings
+hardware:
+  accelerator: "gpu"
+  devices: 1
+  strategy: "auto"
+  num_nodes: 1
+
+# Seed for reproducibility
+seed: 42
