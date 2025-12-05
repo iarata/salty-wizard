@@ -8,12 +8,9 @@ Data has to be obtained from kaggle in https://www.kaggle.com/competitions/brain
 
 For the clustering section all notebooks and code are in the "clustering" folder. Notebooks produce the figures and data for analysis.
 
-## Evaluating
-
-Python file for TF-IDF calculating is also found in "clustering" folder. Can be run by itself with the command
-
-- python clustering/cluster_eval.py
+TF-IDF notebook can also be accessed in the "clustering" folder
 
 ## Embeddings
 
 TBD
+
