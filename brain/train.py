@@ -2,9 +2,7 @@
 """
 Copyright (c) 2025  Alireza Hajebrahimi. All rights reserved.
 
-This work is the original creation of Alireza Hajebrahimi and was developed as part of 
-[Course Name and Code, e.g., "Advanced Deep Learning (CS699)"] at 
-[Your University/Institution Name] in [Year].
+This work is the original creation of Alireza Hajebrahimi and was developed as part of 02807 Computational tools for data scienceat Technical University of Denmark in 2025.
 
 Ownership & License
 -------------------
@@ -24,12 +22,12 @@ personal research purposes provided that:
 2. Any use, publication, or distribution of this work (or derivatives) includes 
    the following mandatory citation:
 
-   @software{yourname_yourmodel_2025,
+   @software{2025brainclip_alireza,
      author    = {Alireza Hajebrahimi},
-     title     = {[Project/Model Name] -- A novel deep learning model},
+     title     = {BrainCLIP - Contrastive Spatiotemporal Transformers for Aligning Intracortical Neural Activity with Natural Language},
      year      = {2025},
-     note      = {Developed as part of [Course Name] at [University Name]},
-     url       = {[GitHub/Link to your repo, if public]},
+     note      = {Developed as part of 02807 Computational tools for data science at Technical University of Denmark},
+     url       = {https://github.com/iarata/BrainCLIP},
      version   = {1.0}
    }
 
@@ -46,7 +44,7 @@ purpose, or non-infringement.
 Contact
 -------
 For licensing inquiries, commercial use, or any questions: 
-[your.email@example.com]
+hajebrahimi.research -at- gmail.com
 
 
 BrainCLIP Training Script
